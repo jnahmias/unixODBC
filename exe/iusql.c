@@ -30,6 +30,8 @@
     #endif 
 #endif
 
+#include <wchar.h>
+
 static int OpenDatabase( SQLHENV *phEnv, SQLHDBC *phDbc, char *szDSN, char *szUID, char *szPWD );
 static int CloseDatabase( SQLHENV hEnv, SQLHDBC hDbc );
 static int ExecuteSQL( SQLHDBC hDbc, char *szSQL, char cDelimiter, int bColumnNames, int bHTMLTable );
@@ -55,19 +57,33 @@ int     buseED                      = 0;
 void UWriteHeaderNormal( SQLHSTMT hStmt, SQLTCHAR *szSepLine );
 void UWriteFooterNormal( SQLHSTMT hStmt, SQLTCHAR *szSepLine, SQLLEN nRows );
 
-static char * uc_to_ascii( SQLWCHAR *uc )
+static char * uc_to_utf8( SQLWCHAR *uc )
 {
-    char *ascii = (char *)uc;
-    int i;
+    static char utf8_output[ MAX_DATA_WIDTH*6+1 ];
+    static size_t outsize = sizeof utf8_output / sizeof utf8_output[0];
+    wchar_t wc_output[ MAX_DATA_WIDTH+1 ];
+    size_t mbs = (size_t) -1;
+    int i = 0;
 
-    for ( i = 0; uc[ i ]; i ++ )
-    {
-        ascii[ i ] = uc[ i ] & 0x00ff;
-    }
+    //fprintf(stderr, "Entering uc_to_utf8()\n");
+    for ( i = 0; uc[ i ] && i < MAX_DATA_WIDTH; i ++ )
+        wc_output[i] = uc[i];
+    wc_output[i] = L'\0';
+    //fprintf(stderr, "wc: '%ls'.\n", wc_output);
+    mbs = wcstombs(utf8_output, wc_output, outsize);
+    if (mbs == (size_t) -1)
+        perror("wcstombs");
+    utf8_output[mbs] = '\0';
+    //fprintf(stderr, "Exiting uc_to_utf8() with '%s'.\n", utf8_output);
+    return utf8_output;
+}
 
-    ascii[ i ] = 0;
-
-    return ascii;
+static size_t uc_len( SQLWCHAR *uc )
+{
+    size_t i = 0;
+    while ( uc[ i++ ] )
+        ;
+    return i;
 }
 
 static void ansi_to_unicode( char *szSQL, SQLWCHAR *szUcSQL )
@@ -718,7 +734,7 @@ static void WriteHeaderHTMLTable( SQLHSTMT hStmt )
 
         printf( "<td>\n" );
         printf( "<font face=Arial,Helvetica><font color=#FFFFFF>\n" );
-        printf( "%s\n", uc_to_ascii( szColumnName ));
+        printf( "%s\n", uc_to_utf8( szColumnName ));
         printf( "</font></font>\n" );
         printf( "</td>\n" );
     }
@@ -751,8 +767,7 @@ static void WriteBodyHTMLTable( SQLHSTMT hStmt )
             nReturn = SQLGetData( hStmt, nCol, SQL_C_WCHAR, (SQLPOINTER)szColumnValue, sizeof(szColumnValue), &nIndicator );
             if ( nReturn == SQL_SUCCESS && nIndicator != SQL_NULL_DATA )
             {
-                uc_to_ascii( szColumnValue );
-                fputs((char*) szColumnValue, stdout );
+                fputs( uc_to_utf8(szColumnValue), stdout );
             }
             else if ( nReturn == SQL_ERROR )
             {
@@ -796,7 +811,7 @@ static void WriteHeaderDelimited( SQLHSTMT hStmt, char cDelimiter )
     for ( nCol = 1; nCol <= nColumns; nCol++ )
     {
         SQLColAttribute( hStmt, nCol, SQL_DESC_LABEL, szColumnName, sizeof(szColumnName), NULL, NULL );
-        fputs((char*) uc_to_ascii( szColumnName ), stdout );
+        fputs( uc_to_utf8( szColumnName ), stdout );
         if ( nCol < nColumns )
             putchar( cDelimiter );
     }
@@ -826,8 +841,7 @@ static void WriteBodyDelimited( SQLHSTMT hStmt, char cDelimiter )
             nReturn = SQLGetData( hStmt, nCol, SQL_C_WCHAR, (SQLPOINTER)szColumnValue, sizeof(szColumnValue), &nIndicator );
             if ( nReturn == SQL_SUCCESS && nIndicator != SQL_NULL_DATA )
             {
-                uc_to_ascii( szColumnValue );
-                fputs((char*) szColumnValue, stdout );
+                fputs( uc_to_utf8(szColumnValue), stdout );
                 if ( nCol < nColumns )
                     putchar( cDelimiter );
             }
@@ -863,6 +877,8 @@ void UWriteHeaderNormal( SQLHSTMT hStmt, SQLTCHAR *szSepLine )
     SQLTCHAR            szColumnName[MAX_DATA_WIDTH+1]; 
     SQLTCHAR            szHdrLine[32001];   
     SQLUINTEGER     nOptimalDisplayWidth            = 10;
+    char column[MAX_DATA_WIDTH+20];
+    char header[32001];
 
     szColumn[ 0 ]       = 0;    
     szColumnName[ 0 ]   = 0;    
@@ -877,23 +893,21 @@ void UWriteHeaderNormal( SQLHSTMT hStmt, SQLTCHAR *szSepLine )
         SQLColAttribute( hStmt, nCol, SQL_DESC_LABEL, szColumnName, sizeof(szColumnName), NULL, NULL );
         if ( nOptimalDisplayWidth > MAX_DATA_WIDTH ) nOptimalDisplayWidth = MAX_DATA_WIDTH;
 
-        uc_to_ascii( szColumnName );
-
         /* SEP */
         memset( szColumn, '\0', sizeof(szColumn) );
-        memset( szColumn, '-', max( nOptimalDisplayWidth, strlen((char*)szColumnName) ) + 1 );
+        memset( szColumn, '-', max( nOptimalDisplayWidth, uc_len(szColumnName) ) + 1 );
         strcat((char*) szSepLine, "+" );
         strcat((char*) szSepLine,(char*) szColumn );
 
         /* HDR */
-        sprintf((char*) szColumn, "| %-*s", (int)max( nOptimalDisplayWidth, strlen((char*)szColumnName) ), (char*)szColumnName );
-        strcat((char*) szHdrLine,(char*) szColumn );
+        sprintf( column, "| %-*s", (int)max( nOptimalDisplayWidth, uc_len(szColumnName) ), uc_to_utf8(szColumnName) );
+        strcat( header, column );
     }
     strcat((char*) szSepLine, "+\n" );
-    strcat((char*) szHdrLine, "|\n" );
+    strcat( header, "|\n" );
 
     puts((char*) szSepLine );
-    puts((char*) szHdrLine );
+    puts( header );
     puts((char*) szSepLine );
 }
 
@@ -909,6 +923,7 @@ static SQLLEN WriteBodyNormal( SQLHSTMT hStmt )
     SQLRETURN       ret;
     SQLLEN          nRows                           = 0;
     SQLUINTEGER     nOptimalDisplayWidth            = 10;
+    char column[MAX_DATA_WIDTH+20];
 
     szColumn[ 0 ]       = 0;
     szColumnValue[ 0 ]  = 0;
@@ -926,31 +941,28 @@ static SQLLEN WriteBodyNormal( SQLHSTMT hStmt )
             SQLColAttribute( hStmt, nCol, SQL_DESC_LABEL, szColumnName, sizeof(szColumnName), NULL, NULL );
             nOptimalDisplayWidth = OptimalDisplayWidth( hStmt, nCol, nUserWidth );
 
-            uc_to_ascii( szColumnName );
-
             if ( nOptimalDisplayWidth > MAX_DATA_WIDTH ) nOptimalDisplayWidth = MAX_DATA_WIDTH;
             nReturn = SQLGetData( hStmt, nCol, SQL_C_WCHAR, (SQLPOINTER)szColumnValue, sizeof(szColumnValue), &nIndicator );
             szColumnValue[MAX_DATA_WIDTH] = '\0';
-            uc_to_ascii( szColumnValue );
 
             if ( nReturn == SQL_SUCCESS && nIndicator != SQL_NULL_DATA )
             {
-                if ( strlen((char*)szColumnValue) < max( nOptimalDisplayWidth, strlen((char*)szColumnName )))
+                if ( uc_len(szColumnValue) < max( nOptimalDisplayWidth, uc_len(szColumnName )))
                 {
                     int i;
-                    size_t maxlen=max( nOptimalDisplayWidth, strlen((char*)szColumnName ));
-                    strcpy((char*) szColumn, "| " );
-                    strcat((char*) szColumn, (char*) szColumnValue );
+                    size_t maxlen=max( nOptimalDisplayWidth, uc_len(szColumnName ));
+                    strcpy( column, "| " );
+                    strcat( column, uc_to_utf8(szColumnValue) );
 
-                    for ( i = strlen((char*) szColumnValue ); i < maxlen; i ++ )
+                    for ( i = uc_len( szColumnValue ); i < maxlen; i ++ )
                     {
-                        strcat((char*) szColumn, " " );
+                        strcat( column, " " );
                     }
                 }
                 else
                 {
-                    strcpy((char*) szColumn, "| " );
-                    strcat((char*) szColumn, (char*) szColumnValue );
+                    strcpy( column, "| " );
+                    strcat( column, uc_to_utf8(szColumnValue) );
                 }
             }
             else if ( nReturn == SQL_ERROR )
@@ -960,9 +972,9 @@ static SQLLEN WriteBodyNormal( SQLHSTMT hStmt )
             }
             else
             {
-                sprintf((char*)  szColumn, "| %-*s", (int)max( nOptimalDisplayWidth, strlen((char*) szColumnName) ), "" );
+                sprintf( column, "| %-*s", (int)max( nOptimalDisplayWidth, uc_len(szColumnName) ), "" );
             }
-            fputs((char*)  szColumn, stdout );
+            fputs( column, stdout );
         }
         if (ret != SQL_SUCCESS)
             break;
@@ -1005,7 +1017,7 @@ static int DumpODBCLog( SQLHENV hEnv, SQLHDBC hDbc, SQLHSTMT hStmt )
     {
         while ( SQLError( hEnv, hDbc, hStmt, szSqlState, &nNativeError, szError, 500, &nErrorMsg ) == SQL_SUCCESS )
         {
-            printf( "%s\n", uc_to_ascii( szError ));
+            printf( "%s\n", uc_to_utf8( szError ));
         }
     }
 
@@ -1013,7 +1025,7 @@ static int DumpODBCLog( SQLHENV hEnv, SQLHDBC hDbc, SQLHSTMT hStmt )
     {
         while ( SQLError( hEnv, hDbc, 0, szSqlState, &nNativeError, szError, 500, &nErrorMsg ) == SQL_SUCCESS )
         {
-            printf( "%s\n", uc_to_ascii( szError ));
+            printf( "%s\n", uc_to_utf8( szError ));
         }
     }
 
@@ -1021,7 +1033,7 @@ static int DumpODBCLog( SQLHENV hEnv, SQLHDBC hDbc, SQLHSTMT hStmt )
     {
         while ( SQLError( hEnv, 0, 0, szSqlState, &nNativeError, szError, 500, &nErrorMsg ) == SQL_SUCCESS )
         {
-            printf( "%s\n", uc_to_ascii( szError ));
+            printf( "%s\n", uc_to_utf8( szError ));
         }
     }
 
