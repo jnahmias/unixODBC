@@ -72,7 +72,11 @@ static char * uc_to_utf8( SQLWCHAR *uc )
     //fprintf(stderr, "wc: '%ls'.\n", wc_output);
     mbs = wcstombs(utf8_output, wc_output, outsize);
     if (mbs == (size_t) -1)
+    {
         perror("wcstombs");
+        utf8_output[0] = '\0';
+        return utf8_output;
+    }
     utf8_output[mbs] = '\0';
     //fprintf(stderr, "Exiting uc_to_utf8() with '%s'.\n", utf8_output);
     return utf8_output;
