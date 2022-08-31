@@ -90,6 +90,26 @@ static size_t uc_len( SQLWCHAR *uc )
     return i;
 }
 
+static void utf8_to_unicode( char *szSQL, SQLWCHAR *szUcSQL )
+{
+    size_t num_wc = (size_t) -1;
+    wchar_t wc_input[ 32001 ];
+    int i = 0;
+
+    num_wc = mbstowcs(wc_input, szSQL, sizeof wc_input / sizeof wc_input[0]);
+    if (num_wc == (size_t) -1)
+    {
+        perror("mbstowcs");
+        szUcSQL[0] = 0;
+        return;
+    }
+    for ( i=0; wc_input[ i ] && i < num_wc; i ++ )
+    {
+        szUcSQL[ i ] = wc_input[ i ];
+    }
+    szUcSQL[ i ] = 0;
+}
+
 static void ansi_to_unicode( char *szSQL, SQLWCHAR *szUcSQL )
 {
     int i;
@@ -482,7 +502,7 @@ static int ExecuteSQL( SQLHDBC hDbc, char *szSQL, char cDelimiter, int bColumnNa
 
     szSepLine[ 0 ] = 0;
 
-    ansi_to_unicode( szSQL, szUcSQL );
+    utf8_to_unicode( szSQL, szUcSQL );
 
     /****************************
      * EXECUTE SQL
@@ -625,7 +645,7 @@ static int ExecuteHelp( SQLHDBC hDbc, char *szSQL, char cDelimiter, int bColumnN
     {
         SQLWCHAR tname[ 1024 ];
 
-        ansi_to_unicode( szTable, tname );
+        utf8_to_unicode( szTable, tname );
         /* COLUMNS */
         if ( SQLColumns( hStmt, NULL, 0, NULL, 0, tname, SQL_NTS, NULL, 0 ) != SQL_SUCCESS )
         {
