@@ -902,11 +902,12 @@ void UWriteHeaderNormal( SQLHSTMT hStmt, SQLTCHAR *szSepLine )
     SQLTCHAR            szHdrLine[32001];   
     SQLUINTEGER     nOptimalDisplayWidth            = 10;
     char column[MAX_DATA_WIDTH+20];
-    char header[32001];
+    char *header = calloc(1, 32001);
 
     szColumn[ 0 ]       = 0;    
     szColumnName[ 0 ]   = 0;    
     szHdrLine[ 0 ]      = 0;    
+    header[ 0 ]         = '\0';
 
     if ( SQLNumResultCols( hStmt, &nColumns ) != SQL_SUCCESS )
         nColumns = -1;
@@ -933,6 +934,7 @@ void UWriteHeaderNormal( SQLHSTMT hStmt, SQLTCHAR *szSepLine )
     puts((char*) szSepLine );
     puts( header );
     puts((char*) szSepLine );
+    free( header );
 }
 
 static SQLLEN WriteBodyNormal( SQLHSTMT hStmt )
